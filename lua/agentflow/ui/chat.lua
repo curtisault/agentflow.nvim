@@ -273,12 +273,14 @@ function M.send()
   _state.running = true
 
   async.run(function()
-    local cfg = config.get()
-
-    local cli = require("agentflow.backend.cli").new({
-      cli_path  = cfg.backend.cli_path,
-      cli_flags = cfg.backend.cli_flags,
-    })
+    local orch = require("agentflow")._get_orchestrator()
+    if not orch then
+      vim.schedule(function()
+        _state.running = false
+        buf_append({ "[Error: AgentFlow not initialized — call setup() first]", "" }, "AgentFlowSystem")
+      end)
+      return
+    end
 
     -- Header line + empty line (spinner/content lands here)
     buf_append({ "Claude:", "" }, "AgentFlowClaude")
@@ -286,10 +288,8 @@ function M.send()
 
     local is_first_token = true
 
-    local result, err = cli:complete(_state.history, {
-      model      = cfg.orchestrator.model,
-      max_tokens = 4096,
-      on_token   = function(token)
+    local result, err = orch:run(prompt, {
+      on_token = function(token)
         vim.schedule(function()
           if is_first_token then
             is_first_token = false

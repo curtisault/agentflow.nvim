@@ -390,13 +390,13 @@ function M:run(prompt, opts)
   local ok_ctx, ctx = pcall(context_mod.build_simple, self.cfg)
   if ok_ctx then context = ctx end
 
-  -- Decompose
-  local plan, err = self:submit(prompt, context, { on_token = opts.on_token })
+  -- Decompose (no on_token — planning output is internal, not streamed to chat)
+  local plan, err = self:submit(prompt, context, {})
   if not plan then return nil, err end
   if opts.on_plan then pcall(opts.on_plan, plan) end
 
-  -- Execute
-  local all_results = self:run_plan(plan, { on_token = opts.on_token })
+  -- Execute (no on_token — agent results are internal)
+  local all_results = self:run_plan(plan, {})
 
   -- Build review items from completed tasks
   local review_items = {}
