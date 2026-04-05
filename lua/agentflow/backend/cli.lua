@@ -119,6 +119,7 @@ function M:complete(messages, opts)
   local tokens_out   = 0
   local model_used   = payload_tbl.model
   local raw_events   = {}
+  local agent_mode   = false   -- true when tool-use blocks detected (agent session)
 
   local function on_stdout(line)
     if line == "" then return end
@@ -135,15 +136,18 @@ function M:complete(messages, opts)
     local etype = event.type
 
     -- Claude Code agent session format (stream-json --verbose)
+    -- Text and tool_use arrive in separate assistant events, so we cannot
+    -- distinguish intermediate turns from final turns during streaming.
+    -- Collect text silently; on_token fires once from the result event.
     if etype == "assistant" then
       local msg = event.message
       if msg then
         if msg.model then model_used = msg.model end
         if msg.content then
           for _, block in ipairs(msg.content) do
+            if block.type == "tool_use" then agent_mode = true end
             if block.type == "text" and block.text then
               table.insert(text_parts, block.text)
-              if opts.on_token then pcall(opts.on_token, block.text) end
             end
           end
         end
@@ -154,10 +158,13 @@ function M:complete(messages, opts)
                    + (event.usage.cache_read_input_tokens or 0)
         tokens_out = event.usage.output_tokens or 0
       end
-      -- Fallback: if no text was captured from assistant events, use result field
-      if #text_parts == 0 and type(event.result) == "string" and event.result ~= "" then
-        table.insert(text_parts, event.result)
+      if type(event.result) == "string" and event.result ~= "" then
+        -- event.result is always the canonical final answer; use it
+        text_parts = { event.result }
         if opts.on_token then pcall(opts.on_token, event.result) end
+      elseif #text_parts > 0 and opts.on_token then
+        -- No result field (unusual); emit accumulated text as one chunk
+        pcall(opts.on_token, table.concat(text_parts, ""))
       end
     elseif etype == "system" then
       if event.model then model_used = event.model end
