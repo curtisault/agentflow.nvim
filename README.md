@@ -115,6 +115,43 @@ Place a `.agentflow.json` file in your project root to override any settings for
 }
 ```
 
+You can also add project-specific agents here. They are merged with (not replace) your global agent list:
+
+```json
+{
+  "agents": [
+    { "name": "rust-expert", "model": "claude-opus-4-6", "backend": "cli", "role": "subagent" }
+  ]
+}
+```
+
+### Project-local agents
+
+For a cleaner setup, place individual agent definition files under `.agentflow/agents/` in your project root. AgentFlow automatically discovers and registers them at startup — no changes to your Neovim config needed.
+
+```
+my-project/
+├── .agentflow/
+│   └── agents/
+│       ├── rust-expert.json
+│       └── test-runner.json
+└── ...
+```
+
+Each file defines one agent:
+
+```json
+{
+  "name": "rust-expert",
+  "model": "claude-opus-4-6",
+  "backend": "cli",
+  "role": "subagent",
+  "max_tokens": 8192
+}
+```
+
+Supported fields mirror the `agents` entries in `setup()`. Project-local files are registered last and win on name conflict, so they can override globally configured agents for a specific project.
+
 ---
 
 ## Commands
@@ -317,6 +354,23 @@ autocmd User AgentFlowAgentCompleted lua print(vim.g.agentflow_event_data)
 | `AgentFlowReviewAccepted` | User accepts an artifact |
 | `AgentFlowReviewRejected` | User rejects an artifact |
 | `AgentFlowReviewRetry` | User requests a retry from review |
+
+---
+
+## Orchestrator visibility
+
+The orchestrator is surfaced as a root agent node in the tree and dashboard. Its internal phases map to agent states so you can see exactly what is happening during a run:
+
+| State | Phase |
+|-------|-------|
+| `running` | Planning — decomposing the user request |
+| `assigned` | Plan ready — tasks queued for delegation |
+| `running` | Delegating — task agents executing in parallel |
+| `running` | Synthesizing — combining results into a final response |
+| `completed` | Workflow finished |
+| `failed` | An unrecoverable error occurred |
+
+Open `:AgentTree` or `:AgentDash` at any point during a workflow to see the orchestrator and its child task agents live.
 
 ---
 
