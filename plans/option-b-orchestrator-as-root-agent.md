@@ -10,6 +10,7 @@
 - [x] **Phase 6** — Verify `tree.lua` renders root agent correctly (no code change expected)
 - [x] **Phase 7** — Update `dashboard.lua` default focus to root agent
 - [ ] **Phase 8** — Verify chat spinner UX is correct (no code change expected)
+- [ ] **Phase 9** — Project-local agent discovery (`.agentflow/agents/*.json` + array merge fix)
 
 ## Goal
 
@@ -296,3 +297,84 @@ No code change needed. This behaviour is already correct after the earlier fix t
   reused `Agent`. If the same instance is used for two tasks in the same run, it will
   appear once in the children list (guarded by Phase 3). Child agent metrics will reflect
   only the last task. Consider whether tasks should always get fresh agent instances.
+
+---
+
+### Phase 9 — Project-local agent discovery
+
+**Files:** `lua/agentflow/config.lua`, `lua/agentflow/agents/init.lua`
+
+#### Part A — Fix agents array merging in `config.lua`
+
+`deep_merge` treats the `agents` array like a plain table: project `agents[1]` overwrites
+the default `agents[1]` rather than appending. Fix by post-processing the merge so project
+agents are unioned with global agents, with project entries winning on name conflict:
+
+```lua
+-- After deep_merge in M.setup(), reconcile agents arrays:
+local function union_agents(base, override)
+  local by_name = {}
+  for _, a in ipairs(base) do by_name[a.name] = a end
+  for _, a in ipairs(override) do by_name[a.name] = a end  -- project wins
+  local out = {}
+  for _, a in pairs(by_name) do table.insert(out, a) end
+  table.sort(out, function(a, b) return a.name < b.name end)
+  return out
+end
+
+-- replace merged cfg.agents with the union:
+cfg.agents = union_agents(DEFAULTS.agents, cfg.agents or {})
+```
+
+#### Part B — Scan `.agentflow/agents/*.json` in `agents/init.lua`
+
+Add `load_from_project_dir()` which scans `cwd()/.agentflow/agents/` for JSON files and
+registers each one. Called at the end of `setup_from_config()`:
+
+```lua
+function M.load_from_project_dir()
+  local dir = vim.fn.getcwd() .. "/.agentflow/agents"
+  local files = vim.fn.glob(dir .. "/*.json", false, true)
+  local count = 0
+  for _, path in ipairs(files) do
+    local raw = vim.fn.readfile(path)
+    if raw and #raw > 0 then
+      local ok, parsed = pcall(vim.fn.json_decode, table.concat(raw, "\n"))
+      if ok and type(parsed) == "table" and parsed.name and parsed.model then
+        M.register(parsed)
+        count = count + 1
+      else
+        log.warn("agents: skipping invalid project agent file", { path = path })
+      end
+    end
+  end
+  if count > 0 then
+    log.info("agents: loaded project-local agents", { count = count, dir = dir })
+  end
+end
+```
+
+Each file describes one agent, e.g. `.agentflow/agents/rust-expert.json`:
+
+```json
+{
+  "name": "rust-expert",
+  "model": "claude-opus-4-6",
+  "backend": "cli",
+  "role": "subagent",
+  "max_tokens": 8192
+}
+```
+
+#### Precedence order (lowest → highest)
+
+1. Plugin defaults (`DEFAULTS.agents`)
+2. `.agentflow.json` project config (`agents` array)
+3. `.agentflow/agents/*.json` individual files (registered last, overwrite on name conflict)
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `lua/agentflow/config.lua` | Add `union_agents()` post-merge step for `agents` array |
+| `lua/agentflow/agents/init.lua` | Add `load_from_project_dir()`; call from `setup_from_config()` |
