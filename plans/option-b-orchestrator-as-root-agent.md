@@ -3,12 +3,12 @@
 ## Checklist
 
 - [x] **Phase 1** — Add `_root_agent` to `orchestrator.new()`
-- [ ] **Phase 2** — Wire root agent state through `submit()`, `run_plan()`, `synthesize()`, `run()`
-- [ ] **Phase 3** — Attach task agents as children of root agent in `run_plan()`
-- [ ] **Phase 4** — Roll up cost/metrics into `_root_agent.metrics` at end of `run()`
-- [ ] **Phase 5** — Reset `_root_agent.children` at top of each `run()` call
-- [ ] **Phase 6** — Verify `tree.lua` renders root agent correctly (no code change expected)
-- [ ] **Phase 7** — Update `dashboard.lua` default focus to root agent
+- [x] **Phase 2** — Wire root agent state through `submit()`, `run_plan()`, `synthesize()`, `run()`
+- [x] **Phase 3** — Attach task agents as children of root agent in `run_plan()`
+- [x] **Phase 4** — Roll up cost/metrics into `_root_agent.metrics` at end of `run()`
+- [x] **Phase 5** — Reset `_root_agent.children` at top of each `run()` call
+- [x] **Phase 6** — Verify `tree.lua` renders root agent correctly (no code change expected)
+- [x] **Phase 7** — Update `dashboard.lua` default focus to root agent
 - [ ] **Phase 8** — Verify chat spinner UX is correct (no code change expected)
 
 ## Goal

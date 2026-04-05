@@ -120,6 +120,11 @@ function M:_track_cost(result)
   self._cost.agent_count = self._cost.agent_count + 1
 end
 
+function M:_set_phase(state, description)
+  self._root_agent.current_task = description and { description = description } or nil
+  self._root_agent:_set_state(state)
+end
+
 -- ── submit() ─────────────────────────────────────────────────────────────────
 
 --- Send the user's message to the orchestrator model and get back a Plan.
@@ -132,6 +137,8 @@ end
 --- @return string|nil error
 function M:submit(user_message, context, opts)
   opts = opts or {}
+
+  self:_set_phase("running", "Planning: " .. user_message:sub(1, 60))
 
   -- Append the user turn (include context as a preamble if provided)
   local content = user_message
@@ -198,6 +205,8 @@ function M:submit(user_message, context, opts)
     groups = #plan.execution_order,
   })
 
+  self:_set_phase("assigned", "Plan ready — " .. #plan.tasks .. " tasks")
+
   return plan, nil
 end
 
@@ -211,6 +220,8 @@ end
 --- @return table[]  All task results { task_id → { ok, result|error } }
 function M:run_plan(plan, opts)
   opts = opts or {}
+
+  self:_set_phase("running", "Delegating " .. #plan.tasks .. " tasks")
 
   local registry  = require("agentflow.agents")
   local agent_mod = require("agentflow.agents.agent")
@@ -258,6 +269,17 @@ function M:run_plan(plan, opts)
 
           task.status = "running"
           events.emit("agent:assigned", { agent = agent, task = task })
+
+          -- Wire agent into tree as child of root
+          local already_child = false
+          for _, c in ipairs(self._root_agent.children) do
+            if c == agent then already_child = true; break end
+          end
+          if not already_child then
+            agent.parent  = self._root_agent
+            agent._events = events
+            table.insert(self._root_agent.children, agent)
+          end
 
           table.insert(submissions, {
             agent   = agent,
@@ -354,6 +376,8 @@ end
 function M:synthesize(opts)
   opts = opts or {}
 
+  self:_set_phase("running", "Synthesizing results")
+
   table.insert(self.conversation, {
     role    = "user",
     content = "All subagents have completed. Please synthesize their results into a " ..
@@ -400,6 +424,11 @@ end
 function M:run(prompt, opts)
   opts = opts or {}
 
+  -- Reset per-run state on root agent
+  self._root_agent.children = {}
+  self._root_agent._cancelled = false
+  self._root_agent.metrics.started_at = vim.loop.now()
+
   -- Build initial context
   local context_mod = require("agentflow.context")
   local context = ""
@@ -408,7 +437,10 @@ function M:run(prompt, opts)
 
   -- Decompose (no on_token — planning output is internal, not streamed to chat)
   local plan, err = self:submit(prompt, context, {})
-  if not plan then return nil, err end
+  if not plan then
+    self:_set_phase("failed", nil)
+    return nil, err
+  end
   if opts.on_plan then pcall(opts.on_plan, plan) end
 
   -- Execute (no on_token — agent results are internal)
@@ -436,7 +468,18 @@ function M:run(prompt, opts)
 
   -- Synthesize
   local final, syn_err = self:synthesize({ on_token = opts.on_token })
-  if syn_err then return nil, syn_err end
+  if syn_err then
+    self:_set_phase("failed", nil)
+    return nil, syn_err
+  end
+
+  self:_set_phase("completed", nil)
+
+  -- Roll up accumulated cost into root agent metrics
+  self._root_agent.metrics.tokens_in   = self._cost.tokens_in
+  self._root_agent.metrics.tokens_out  = self._cost.tokens_out
+  self._root_agent.metrics.duration_ms =
+    vim.loop.now() - (self._root_agent.metrics.started_at or vim.loop.now())
 
   if opts.on_complete then pcall(opts.on_complete, final) end
   return final, nil
@@ -535,6 +578,8 @@ function M:reset()
   self.pending_results = {}
   self._cost           = { tokens_in = 0, tokens_out = 0, agent_count = 0 }
   self._pool           = nil
+  self._root_agent:reset()
+  self._root_agent.children = {}   -- agent:reset() does not clear children
   log.debug("orchestrator: reset")
 end
 
