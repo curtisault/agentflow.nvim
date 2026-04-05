@@ -90,6 +90,17 @@ local function deep_copy(t)
   return copy
 end
 
+--- Union two agents arrays by name. Later entries win on conflict.
+local function union_agents(base, override)
+  local by_name = {}
+  for _, a in ipairs(base)     do by_name[a.name] = a end
+  for _, a in ipairs(override) do by_name[a.name] = a end  -- override wins
+  local out = {}
+  for _, a in pairs(by_name) do table.insert(out, a) end
+  table.sort(out, function(a, b) return a.name < b.name end)
+  return out
+end
+
 --- Load and merge a .agentflow.json project file if one exists.
 local function load_project_file()
   local path = vim.fn.getcwd() .. "/.agentflow.json"
@@ -203,12 +214,21 @@ function M.setup(user_opts)
   -- Merge project-level .agentflow.json first (lowest priority override)
   local project = load_project_file()
   if next(project) then
+    local project_agents = project.agents or {}
     deep_merge(cfg, project)
+    -- Restore agents as a union so project entries append rather than overwrite
+    if #project_agents > 0 then
+      cfg.agents = union_agents(deep_copy(DEFAULTS.agents), project_agents)
+    end
   end
 
   -- Merge user opts (highest priority)
   if user_opts and next(user_opts) then
+    local user_agents = user_opts.agents or {}
     deep_merge(cfg, user_opts)
+    if #user_agents > 0 then
+      cfg.agents = union_agents(cfg.agents, user_agents)
+    end
   end
 
   local _, errors = M.validate(cfg)

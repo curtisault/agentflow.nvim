@@ -10,7 +10,7 @@
 - [x] **Phase 6** — Verify `tree.lua` renders root agent correctly (no code change expected)
 - [x] **Phase 7** — Update `dashboard.lua` default focus to root agent
 - [x] **Phase 8** — Verify chat spinner UX is correct (no code change expected)
-- [ ] **Phase 9** — Project-local agent discovery (`.agentflow/agents/*.json` + array merge fix)
+- [x] **Phase 9** — Project-local agent discovery (`.agentflow/agents/*.json` + array merge fix)
 
 ## Goal
 

@@ -59,6 +59,30 @@ function M.clear()
   _registry = {}
 end
 
+--- Scan .agentflow/agents/*.json in the current working directory and register
+--- any valid agent definitions found. Called after setup_from_config() so that
+--- project-local agents can override config-defined ones by name.
+function M.load_from_project_dir()
+  local dir   = vim.fn.getcwd() .. "/.agentflow/agents"
+  local files = vim.fn.glob(dir .. "/*.json", false, true)
+  local count = 0
+  for _, path in ipairs(files) do
+    local raw = vim.fn.readfile(path)
+    if raw and #raw > 0 then
+      local ok, parsed = pcall(vim.fn.json_decode, table.concat(raw, "\n"))
+      if ok and type(parsed) == "table" and parsed.name and parsed.model then
+        M.register(parsed)
+        count = count + 1
+      else
+        log.warn("agents: skipping invalid project agent file", { path = path })
+      end
+    end
+  end
+  if count > 0 then
+    log.info("agents: loaded project-local agents", { count = count, dir = dir })
+  end
+end
+
 --- Bootstrap the registry from the user config.
 --- Called automatically by agentflow.setup().
 function M.setup_from_config()
@@ -67,6 +91,7 @@ function M.setup_from_config()
   for _, agent_cfg in ipairs(cfg.agents or {}) do
     M.register(agent_cfg)
   end
+  M.load_from_project_dir()
   log.info("Agent registry initialized", { count = #M.list() })
 end
 
