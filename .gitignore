@@ -5,5 +5,9 @@
 doc/tags
 *.log
 
+# LLM
+.serena/**
+.claude/**
+
 # OS
 .DS_Store
