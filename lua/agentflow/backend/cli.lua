@@ -60,7 +60,7 @@ function M.new(opts)
   opts = opts or {}
   local self = {
     cli_path    = opts.cli_path or "claude",
-    cli_flags   = opts.cli_flags or { "--output-format", "json", "--verbose" },
+    cli_flags   = opts.cli_flags or { "--output-format", "stream-json", "--verbose" },
     fallback_fn = opts.fallback_fn,
   }
   return setmetatable(self, { __index = M })
@@ -111,7 +111,7 @@ function M:complete(messages, opts)
   local cmd = { self.cli_path, "api", "messages" }
   vim.list_extend(cmd, self.cli_flags)
 
-  log.debug("CLI request", { model = payload_tbl.model, messages = #messages })
+  log.info("CLI request", { cmd = cmd, model = payload_tbl.model, messages = #messages })
 
   -- Accumulate streamed response
   local text_parts   = {}
@@ -119,26 +119,62 @@ function M:complete(messages, opts)
   local tokens_out   = 0
   local model_used   = payload_tbl.model
   local raw_events   = {}
+  local agent_mode   = false   -- true when tool-use blocks detected (agent session)
 
   local function on_stdout(line)
     if line == "" then return end
+    log.info("CLI stdout", { line = line })
 
     local event, parse_err = json.decode(line)
     if not event then
-      log.debug("CLI: non-JSON stdout line", { line = line, err = parse_err })
+      log.warn("CLI: non-JSON stdout line", { line = line, err = parse_err })
       return
     end
 
     table.insert(raw_events, event)
 
     local etype = event.type
-    if etype == "content_block_delta" then
+
+    -- Claude Code agent session format (stream-json --verbose)
+    -- Text and tool_use arrive in separate assistant events, so we cannot
+    -- distinguish intermediate turns from final turns during streaming.
+    -- Collect text silently; on_token fires once from the result event.
+    if etype == "assistant" then
+      local msg = event.message
+      if msg then
+        if msg.model then model_used = msg.model end
+        if msg.content then
+          for _, block in ipairs(msg.content) do
+            if block.type == "tool_use" then agent_mode = true end
+            if block.type == "text" and block.text then
+              table.insert(text_parts, block.text)
+            end
+          end
+        end
+      end
+    elseif etype == "result" then
+      if event.usage then
+        tokens_in  = (event.usage.input_tokens or 0)
+                   + (event.usage.cache_read_input_tokens or 0)
+        tokens_out = event.usage.output_tokens or 0
+      end
+      if type(event.result) == "string" and event.result ~= "" then
+        -- event.result is always the canonical final answer; use it
+        text_parts = { event.result }
+        if opts.on_token then pcall(opts.on_token, event.result) end
+      elseif #text_parts > 0 and opts.on_token then
+        -- No result field (unusual); emit accumulated text as one chunk
+        pcall(opts.on_token, table.concat(text_parts, ""))
+      end
+    elseif etype == "system" then
+      if event.model then model_used = event.model end
+
+    -- Raw Anthropic Messages API streaming format (fallback / future use)
+    elseif etype == "content_block_delta" then
       local delta = event.delta
       if delta and delta.type == "text_delta" and delta.text then
         table.insert(text_parts, delta.text)
-        if opts.on_token then
-          pcall(opts.on_token, delta.text)
-        end
+        if opts.on_token then pcall(opts.on_token, delta.text) end
       end
     elseif etype == "message_delta" then
       if event.usage then
@@ -163,7 +199,7 @@ function M:complete(messages, opts)
     on_stdout = on_stdout,
     on_stderr = function(line)
       if line ~= "" then
-        log.debug("CLI stderr", { line = line })
+        log.info("CLI stderr", { line = line })
       end
     end,
   })
@@ -171,6 +207,8 @@ function M:complete(messages, opts)
   if run_err then
     return nil, "CLI backend: subprocess error: " .. run_err
   end
+
+  log.info("CLI exited", { code = result.code, raw_events = #raw_events, stdout_bytes = #result.stdout, stderr_bytes = #result.stderr })
 
   if result.code ~= 0 then
     local stderr_msg = result.stderr ~= "" and result.stderr or "(no stderr)"
@@ -180,8 +218,9 @@ function M:complete(messages, opts)
 
   local content = table.concat(text_parts, "")
 
-  if content == "" then
-    -- Might be a non-streaming JSON response (--output-format json without streaming)
+  if content == "" and #raw_events == 0 then
+    -- No streaming events received; try batch JSON fallback
+    -- (only safe when output is a single JSON object, not concatenated NDJSON)
     local body, body_err = json.decode(result.stdout)
     if body and body.content then
       for _, block in ipairs(body.content) do

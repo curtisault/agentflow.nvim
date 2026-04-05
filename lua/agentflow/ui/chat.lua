@@ -20,9 +20,92 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "AgentFlowSpinner",{ fg = "#fab387" })                -- peach
 end
 
+-- forward declaration so spinner functions can reference _state as an upvalue
+local _state
+
+-- ── Spinner ───────────────────────────────────────────────────────────────────
+
+local SPINNER_FRAMES = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+local SPINNER_VERBS  = {
+      "Journeying through Arda",
+      "Consulting the Palantír",
+      "Deciphering ancient Elvish texts",
+      "Forging in the fires of Mount Doom",
+      "Seeking wisdom in Rivendell",
+      "Marching with the armies of the West",
+      "Bearing the burden",
+      "Inscribing in the Book of Mazarbul",
+      "Wandering through Mirkwood",
+      "Following the trail of the Uruk-hai",
+      "Pondering in the halls of Moria",
+      "Calling upon the Eagles",
+      "Lighting the beacons of Gondor",
+      "Reforging the shards of Narsil",
+      "Summoning the Grey Host",
+      "Passing through the Mines of Moria",
+      "Crossing the Bridge of Khazad-dûm",
+      "Taking counsel with the White Council",
+      "Searching the archives of Minas Tirith",
+      "Walking the paths of the dead",
+      "Reckoning as the wisest of wizards",
+      "Bearing as a ranger of the North",
+      "Weaving the tapestry of fate",
+      "Unsealing the gates of Moria",
+      "Recording in the Red Book",
+      "Sending riders of Rohan",
+      "Beginning the quest",
+      "Examining in Galadriel's Mirror",
+      "Studying the lore of the Elves",
+      "👁️ Eye of Sauron'ening",
+      "Preserving in the halls of Rivendell",
+      "Hunting servants of the Enemy",
+      "Uniting the kingdoms of Men and Elves",
+      "Facing the trial at Mount Doom",
+      "Casting into the Cracks of Doom",
+      "Ordering as the Elves would have it"
+}
+
+local _sp = { timer = nil, frame = 1, verb = 1, tick = 0, active = false }
+
+local function buf_set_last_line(text)
+  if not (_state and _state.buf and vim.api.nvim_buf_is_valid(_state.buf)) then return end
+  local count = vim.api.nvim_buf_line_count(_state.buf)
+  vim.api.nvim_set_option_value("modifiable", true, { buf = _state.buf })
+  vim.api.nvim_buf_set_lines(_state.buf, count - 1, count, false, { text })
+  vim.api.nvim_set_option_value("modifiable", false, { buf = _state.buf })
+end
+
+local function spinner_stop()
+  if _sp.timer then
+    _sp.timer:stop()
+    if not _sp.timer:is_closing() then _sp.timer:close() end
+    _sp.timer = nil
+  end
+  _sp.active = false
+end
+
+local function spinner_start()
+  _sp.frame  = 1
+  _sp.tick   = 0
+  _sp.verb   = math.random(#SPINNER_VERBS)
+  _sp.active = true
+
+  local verb = SPINNER_VERBS[_sp.verb]
+
+  _sp.timer = vim.loop.new_timer()
+  _sp.timer:start(0, 120, vim.schedule_wrap(function()
+    if not _sp.active then return end
+    if not (_state.buf and vim.api.nvim_buf_is_valid(_state.buf)) then
+      spinner_stop(); return
+    end
+    _sp.frame = (_sp.frame % #SPINNER_FRAMES) + 1
+    buf_set_last_line(SPINNER_FRAMES[_sp.frame] .. " " .. verb .. "…")
+  end))
+end
+
 -- ── State ─────────────────────────────────────────────────────────────────────
 
-local _state = {
+_state = {
   buf       = nil,   -- chat display buffer
   win       = nil,   -- chat display window
   input_buf = nil,   -- input prompt buffer
@@ -192,38 +275,45 @@ function M.send()
   async.run(function()
     local cfg = config.get()
 
-    -- Lazy-load the CLI adapter
     local cli = require("agentflow.backend.cli").new({
       cli_path  = cfg.backend.cli_path,
       cli_flags = cfg.backend.cli_flags,
     })
 
-    -- Seed the display line for streaming
-    buf_append({ "Claude: " }, "AgentFlowClaude")
+    -- Header line + empty line (spinner/content lands here)
+    buf_append({ "Claude:", "" }, "AgentFlowClaude")
+    spinner_start()
+
+    local is_first_token = true
 
     local result, err = cli:complete(_state.history, {
       model      = cfg.orchestrator.model,
       max_tokens = 4096,
       on_token   = function(token)
         vim.schedule(function()
+          if is_first_token then
+            is_first_token = false
+            spinner_stop()
+            buf_set_last_line("")
+          end
           buf_append_token(token)
         end)
       end,
     })
 
     vim.schedule(function()
+      spinner_stop()
       _state.running = false
 
       if err then
-        buf_append({ "", "[Error: " .. err .. "]", "" }, "AgentFlowSystem")
+        buf_set_last_line("")
+        buf_append({ "[Error: " .. err .. "]", "" }, "AgentFlowSystem")
         log.error("Chat request failed", { error = err })
         return
       end
 
-      -- Add assistant turn to history (full content, not streamed)
       table.insert(_state.history, { role = "assistant", content = result.content })
 
-      -- Add token stats as a subtle note
       local stats = string.format(
         "[%d in / %d out tokens — %s]",
         result.tokens_in, result.tokens_out, result.model
@@ -253,7 +343,9 @@ function M.open()
     for _, msg in ipairs(_state.history) do
       local hl = msg.role == "user" and "AgentFlowUser" or "AgentFlowClaude"
       local label = msg.role == "user" and "You: " or "Claude: "
-      buf_append({ label .. msg.content, "" }, hl)
+      local content_lines = vim.split(label .. msg.content, "\n", { plain = true })
+      table.insert(content_lines, "")
+      buf_append(content_lines, hl)
     end
   else
     buf_append({ "AgentFlow — type a message and press <CR> to send.", "" }, "AgentFlowSystem")

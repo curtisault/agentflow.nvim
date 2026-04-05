@@ -60,9 +60,8 @@ local function subtree_stats(agent)
 end
 
 local function progress_bar(agent, width)
-  local _, total   = subtree_stats(agent)
-  local _, counts2 = subtree_stats(agent)
-  local done       = (counts2.completed or 0)
+  local counts, total = subtree_stats(agent)
+  local done          = (counts.completed or 0)
   local pct        = total > 0 and math.floor(done / total * width) or 0
   return string.rep("█", pct) .. string.rep("░", width - pct)
 end
