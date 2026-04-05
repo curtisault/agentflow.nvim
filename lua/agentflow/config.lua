@@ -9,7 +9,7 @@ local DEFAULTS = {
   backend = {
     primary = "cli",
     cli_path = "claude",
-    cli_flags = { "--output-format", "json", "--verbose" },
+    cli_flags = { "--output-format", "stream-json", "--verbose" },
     api_key_env = "ANTHROPIC_API_KEY",
   },
   orchestrator = {
