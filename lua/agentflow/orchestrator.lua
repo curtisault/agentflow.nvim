@@ -94,9 +94,13 @@ end
 function M:_get_backend()
   if not self._backend then
     local backend_mod = require("agentflow.backend")
+    -- Use --output-format json (non-streaming, no --verbose) so the payload's
+    -- system prompt is respected. stream-json requires --verbose which injects
+    -- Claude Code's own session context and overrides the orchestrator's
+    -- JSON-plan system prompt.
     self._backend = backend_mod.get(
       self.cfg.backend.primary or "cli",
-      { cli_path = self.cfg.backend.cli_path, cli_flags = self.cfg.backend.cli_flags }
+      { cli_path = self.cfg.backend.cli_path, cli_flags = { "--output-format", "json" } }
     )
   end
   return self._backend
