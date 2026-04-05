@@ -1,0 +1,9 @@
+# Session data written by persistence.lua
+.agentflow/
+
+# Compiled / generated
+doc/tags
+*.log
+
+# OS
+.DS_Store
