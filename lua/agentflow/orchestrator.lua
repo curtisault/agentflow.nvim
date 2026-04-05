@@ -69,8 +69,24 @@ function M.new(cfg)
 
     -- Agent pool (lazy)
     _pool = nil,
+
+    -- Root agent: represents the orchestrator in the tree/dashboard UI
+    _root_agent = nil,  -- populated below
   }
-  return setmetatable(self, { __index = M })
+  setmetatable(self, { __index = M })
+
+  local agent_mod = require("agentflow.agents.agent")
+  self._root_agent = agent_mod.new(
+    {
+      name    = "orchestrator",
+      model   = cfg.orchestrator.model,
+      backend = cfg.backend.primary or "cli",
+      role    = "orchestrator",
+    },
+    { depth = 0, events = events }
+  )
+
+  return self
 end
 
 -- ── Internal helpers ──────────────────────────────────────────────────────────
