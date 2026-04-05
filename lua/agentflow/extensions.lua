@@ -147,10 +147,32 @@ function M.setup_autocommands()
     ["review:retry"]             = "AgentFlowReviewRetry",
   }
 
+  -- Strip functions and other non-serializable values before json_encode.
+  local function sanitize(v, depth)
+    depth = depth or 0
+    if depth > 6 then return nil end
+    local t = type(v)
+    if t == "function" or t == "userdata" or t == "thread" then
+      return nil
+    elseif t == "table" then
+      local out = {}
+      for k, val in pairs(v) do
+        if type(k) == "string" or type(k) == "number" then
+          local sv = sanitize(val, depth + 1)
+          if sv ~= nil then out[k] = sv end
+        end
+      end
+      return out
+    else
+      return v
+    end
+  end
+
   for internal_event, autocmd_name in pairs(event_map) do
     events.on(internal_event, function(data)
       -- Store payload in a global so autocommand handlers can access it
-      vim.g.agentflow_event_data = vim.fn.json_encode(data or {})
+      local ok, encoded = pcall(vim.fn.json_encode, sanitize(data) or {})
+      vim.g.agentflow_event_data = ok and encoded or "{}"
       vim.api.nvim_exec_autocmds("User", {
         pattern = autocmd_name,
         data    = data,
