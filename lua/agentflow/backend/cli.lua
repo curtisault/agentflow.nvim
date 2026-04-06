@@ -218,6 +218,27 @@ function M:complete(messages, opts)
 
   local content = table.concat(text_parts, "")
 
+  -- Fallback: if streaming produced no text, scan raw_events backward for the
+  -- last assistant turn that has text content (handles nil/vim.NIL result field
+  -- and tool-only sessions where result.result is null).
+  if content == "" and #raw_events > 0 then
+    for i = #raw_events, 1, -1 do
+      local ev = raw_events[i]
+      if ev.type == "assistant" and ev.message and type(ev.message.content) == "table" then
+        for _, block in ipairs(ev.message.content) do
+          if block.type == "text" and type(block.text) == "string" and block.text ~= "" then
+            content = block.text
+            break
+          end
+        end
+      end
+      if content ~= "" then break end
+    end
+    if content ~= "" then
+      log.debug("CLI: used raw_event fallback for content")
+    end
+  end
+
   if content == "" and #raw_events == 0 then
     -- No streaming events received; try batch JSON fallback
     -- (only safe when output is a single JSON object, not concatenated NDJSON)

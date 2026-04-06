@@ -59,6 +59,90 @@ function M.clear()
   _registry = {}
 end
 
+--- Parse a markdown agent definition file with YAML-style frontmatter.
+--- Returns a config table with an optional `system_prompt` field.
+--- @param path string  Absolute path to the .md file
+--- @return table|nil  parsed config, or nil on failure
+local function parse_agent_md(path)
+  local lines = vim.fn.readfile(path)
+  if not lines or #lines == 0 then return nil end
+
+  -- Must start with ---
+  if lines[1] ~= "---" then return nil end
+
+  -- Find closing ---
+  local fm_end = nil
+  for i = 2, #lines do
+    if lines[i] == "---" then
+      fm_end = i
+      break
+    end
+  end
+  if not fm_end then return nil end
+
+  -- Parse frontmatter key: value pairs
+  local cfg = {}
+  for i = 2, fm_end - 1 do
+    local key, val = lines[i]:match("^([%w_]+):%s*(.+)$")
+    if key and val then
+      -- Convert numeric strings
+      local num = tonumber(val)
+      cfg[key] = num or val
+    end
+  end
+
+  if not cfg.name or not cfg.model then return nil end
+
+  -- Body after closing --- is the system prompt
+  if fm_end < #lines then
+    local body_lines = vim.list_slice(lines, fm_end + 1, #lines)
+    local body = table.concat(body_lines, "\n"):match("^%s*(.-)%s*$")  -- trim
+    if body ~= "" then
+      cfg.system_prompt = body
+    end
+  end
+
+  return cfg
+end
+
+--- Scan .agentflow/agents/*.md (and *.json for backwards compatibility) in the
+--- current working directory and register any valid agent definitions found.
+--- Called after setup_from_config() so that project-local agents can override
+--- config-defined ones by name.
+function M.load_from_project_dir()
+  local dir   = vim.fn.getcwd() .. "/.agentflow/agents"
+  local count = 0
+
+  -- Markdown agent definitions (preferred)
+  for _, path in ipairs(vim.fn.glob(dir .. "/*.md", false, true)) do
+    local cfg = parse_agent_md(path)
+    if cfg then
+      M.register(cfg)
+      count = count + 1
+    else
+      log.warn("agents: skipping invalid project agent file", { path = path })
+    end
+  end
+
+  -- JSON fallback (legacy)
+  for _, path in ipairs(vim.fn.glob(dir .. "/*.json", false, true)) do
+    local raw = vim.fn.readfile(path)
+    if raw and #raw > 0 then
+      local ok, parsed = pcall(vim.fn.json_decode, table.concat(raw, "\n"))
+      if ok and type(parsed) == "table" and parsed.name and parsed.model then
+        M.register(parsed)
+        count = count + 1
+      else
+        log.warn("agents: skipping invalid project agent file", { path = path })
+      end
+    end
+  end
+
+  if count > 0 then
+    log.info("agents: loaded project-local agents", { count = count, dir = dir })
+  end
+end
+
 --- Bootstrap the registry from the user config.
 --- Called automatically by agentflow.setup().
 function M.setup_from_config()
@@ -67,6 +151,7 @@ function M.setup_from_config()
   for _, agent_cfg in ipairs(cfg.agents or {}) do
     M.register(agent_cfg)
   end
+  M.load_from_project_dir()
   log.info("Agent registry initialized", { count = #M.list() })
 end
 

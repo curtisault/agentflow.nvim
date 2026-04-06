@@ -1,6 +1,9 @@
 # Session data written by persistence.lua
 .agentflow/
 
+# Ignore generated plans
+plans/**
+
 # Compiled / generated
 doc/tags
 *.log

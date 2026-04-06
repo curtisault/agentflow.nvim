@@ -140,7 +140,7 @@ function M:run(task, context, opts)
     return adapter:complete(messages, {
       model      = self.config.model,
       max_tokens = self.config.max_tokens or 8192,
-      system     = opts.system,
+      system     = opts.system or self.config.system_prompt,
       on_token   = opts.on_token,
       timeout    = timeout_ms,
     })
@@ -167,12 +167,14 @@ function M:run(task, context, opts)
   self.metrics.duration_ms = vim.loop.now() - (self.metrics.started_at or 0)
 
   if self._cancelled then
+    self.error = "cancelled"
     self:_set_state(STATES.failed)
     self:_emit("agent:failed", { agent = self, error = "cancelled" })
     return nil, "agent cancelled"
   end
 
   if err then
+    self.error = err
     self:_set_state(STATES.failed)
     self.metrics.tokens_in  = 0
     self.metrics.tokens_out = 0
@@ -188,6 +190,8 @@ function M:run(task, context, opts)
   -- Append assistant turn to history
   table.insert(self.history, { role = "user",      content = user_content })
   table.insert(self.history, { role = "assistant", content = result.content })
+
+  self.result = result
 
   self:_set_state(STATES.completed)
   self:_emit("agent:completed", { agent = self, result = result })
@@ -281,6 +285,8 @@ end
 function M:reset()
   self._cancelled  = false
   self.current_task = nil
+  self.result      = nil
+  self.error       = nil
   self.history     = {}
   self.metrics     = { tokens_in = 0, tokens_out = 0, duration_ms = 0, started_at = nil }
   self:_set_state(STATES.idle)
