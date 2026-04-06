@@ -1,16 +1,30 @@
 -- tests/minimal_init.lua — Minimal Neovim init for running tests with plenary.
 -- Usage: nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/"
 
--- Point to plenary — tries vim.pack location first, then lazy.nvim fallback
-local plenary_path = vim.fn.stdpath("data") .. "/site/pack/nvim/start/plenary.nvim"
-if vim.fn.isdirectory(plenary_path) == 0 then
-  plenary_path = vim.fn.stdpath("data") .. "/lazy/plenary.nvim"
+-- Point to plenary — search common pack locations
+local data = vim.fn.stdpath("data")
+local candidates = {
+  data .. "/site/pack/nvim/start/plenary.nvim",
+  data .. "/lazy/plenary.nvim",
+  data .. "/site/pack/core/opt/plenary.nvim",
+  data .. "/site/pack/core/start/plenary.nvim",
+}
+local plenary_path
+for _, p in ipairs(candidates) do
+  if vim.fn.isdirectory(p) == 1 then
+    plenary_path = p
+    break
+  end
+end
+if not plenary_path then
+  error("plenary.nvim not found — install it via your package manager")
 end
 
 vim.opt.runtimepath:prepend(plenary_path)
 
 -- Add the plugin root to runtimepath so agentflow is require()-able
-local plugin_root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h")
+local this_file = debug.getinfo(1, "S").source:sub(2)
+local plugin_root = vim.fn.fnamemodify(this_file, ":h:h")
 vim.opt.runtimepath:prepend(plugin_root)
 
 -- Stub vim.notify so test output stays clean

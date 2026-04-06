@@ -83,7 +83,7 @@ local function parse_agent_md(path)
   -- Parse frontmatter key: value pairs
   local cfg = {}
   for i = 2, fm_end - 1 do
-    local key, val = lines[i]:match("^(%w+):%s*(.+)$")
+    local key, val = lines[i]:match("^([%w_]+):%s*(.+)$")
     if key and val then
       -- Convert numeric strings
       local num = tonumber(val)
