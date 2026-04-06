@@ -223,11 +223,11 @@ local function set_keymaps()
     render()
   end)
 
-  -- Open in dashboard
+  -- Open dashboard in the main window (keep sidebar open)
   map("<CR>", function()
     local a = agent_at_cursor()
     if a then
-      M.close()
+      vim.cmd("wincmd l")  -- move focus to window right of sidebar
       require("agentflow.ui.dashboard").open({ focus = a })
     end
   end)
@@ -274,21 +274,22 @@ local function set_keymaps()
   map("q",     M.close)
   map("<Esc>", M.close)
   map("<Tab>", function()
-    M.close()
+    vim.cmd("wincmd l")
     require("agentflow.ui.hub").open()
   end)
 end
 
 -- ── Public API ────────────────────────────────────────────────────────────────
 
---- Open the tree view.
+--- Toggle the tree sidebar. Opens if closed, closes if open.
 --- @param opts table|nil { agents? table[]  root agent list }
 function M.open(opts)
   opts = opts or {}
   setup_highlights()
 
+  -- Toggle: close if already open
   if _state.win and vim.api.nvim_win_is_valid(_state.win) then
-    vim.api.nvim_set_current_win(_state.win)
+    M.close()
     return
   end
 
@@ -299,7 +300,6 @@ function M.open(opts)
     local ok, init = pcall(require, "agentflow")
     local orc = ok and init._orchestrator
     _state.root_agents = (orc and orc._root_agent) and { orc._root_agent } or {}
-    -- Fallback: show registered agent configs as stubs
     if #_state.root_agents == 0 then
       local registry = require("agentflow.agents")
       _state.root_agents = vim.tbl_map(function(ac)
@@ -312,32 +312,25 @@ function M.open(opts)
   _state.buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_option_value("filetype",   "agentflow-tree", { buf = _state.buf })
   vim.api.nvim_set_option_value("modifiable", false, { buf = _state.buf })
-  vim.api.nvim_set_option_value("bufhidden",  "wipe",  { buf = _state.buf })
+  vim.api.nvim_set_option_value("bufhidden",  "wipe", { buf = _state.buf })
 
-  local width  = math.floor(vim.o.columns * 0.5)
-  local height = math.floor(vim.o.lines   * 0.75)
-  local row    = math.floor((vim.o.lines   - height) / 2)
-  local col    = math.floor((vim.o.columns - width)  / 2)
+  -- Open as a fixed-width left sidebar
+  vim.cmd("topleft vsplit")
+  _state.win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(_state.win, _state.buf)
+  vim.api.nvim_win_set_width(_state.win, 70)
 
-  _state.win = vim.api.nvim_open_win(_state.buf, true, {
-    relative  = "editor",
-    row = row, col = col, width = width, height = height,
-    style     = "minimal",
-    border    = "rounded",
-    title     = " Agent Tree ",
-    title_pos = "center",
-  })
-  vim.api.nvim_set_option_value("cursorline", true,  { win = _state.win })
-  vim.api.nvim_set_option_value("number",     false, { win = _state.win })
-  vim.api.nvim_set_option_value("wrap",       false, { win = _state.win })
+  vim.api.nvim_set_option_value("winfixwidth", true,  { win = _state.win })
+  vim.api.nvim_set_option_value("cursorline",  true,  { win = _state.win })
+  vim.api.nvim_set_option_value("number",      false, { win = _state.win })
+  vim.api.nvim_set_option_value("wrap",        false, { win = _state.win })
+  vim.api.nvim_set_option_value("signcolumn",  "no",  { win = _state.win })
 
   set_keymaps()
   render()
 
-  -- Reactive updates
   events.on("agent:state_changed", function(_) vim.schedule(render) end)
-
-  log.debug("Tree view opened")
+  log.debug("Tree sidebar opened")
 end
 
 function M.close()
