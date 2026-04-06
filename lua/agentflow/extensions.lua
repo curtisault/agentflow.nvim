@@ -175,7 +175,7 @@ function M.setup_autocommands()
       vim.g.agentflow_event_data = ok and encoded or "{}"
       vim.api.nvim_exec_autocmds("User", {
         pattern = autocmd_name,
-        data    = data,
+        data    = vim.g.agentflow_event_data,
       })
     end)
   end
