@@ -49,10 +49,20 @@ function M.run(opts)
     coroutine.resume(co, result, err)
   end
 
-  -- Append raw data chunks into buf, emit complete \n-terminated lines.
+  -- Append raw data chunks into buf, emit complete lines.
+  --
+  -- jobstart()'s on_stdout receives a list where consecutive items are
+  -- separated by newlines. An empty string "" means "newline here" — it does
+  -- NOT contain a literal \n character. Items across separate callbacks may
+  -- share a line (partial delivery), so we keep a persistent buffer.
+  --
   -- Returns the updated buffer (the unfinished trailing fragment).
   local function flush_lines(buf, raw, line_list, line_cb)
-    for _, chunk in ipairs(raw) do
+    for i, chunk in ipairs(raw) do
+      if i > 1 then
+        -- Items within one callback are newline-separated
+        buf = buf .. "\n"
+      end
       buf = buf .. chunk
     end
     while true do
@@ -60,8 +70,10 @@ function M.run(opts)
       if not nl then break end
       local line = buf:sub(1, nl - 1):gsub("\r$", "")
       buf = buf:sub(nl + 1)
-      table.insert(line_list, line)
-      if line_cb then pcall(line_cb, line) end
+      if line ~= "" then
+        table.insert(line_list, line)
+        if line_cb then pcall(line_cb, line) end
+      end
     end
     return buf
   end

@@ -60,12 +60,6 @@ local function subtree_stats(agent)
   return counts, total
 end
 
-local function progress_bar(agent, width)
-  local counts, total = subtree_stats(agent)
-  local done          = (counts.completed or 0)
-  local pct        = total > 0 and math.floor(done / total * width) or 0
-  return string.rep("█", pct) .. string.rep("░", width - pct)
-end
 
 -- ── Rendering ─────────────────────────────────────────────────────────────────
 
@@ -131,9 +125,21 @@ local function render()
     add("  │  Task:    " .. desc, "AgentFlowDashDim")
   end
 
-  -- Progress bar
-  local bar = progress_bar(agent, 40)
-  add("  │  Progress: " .. bar, "AgentFlowDashStatNum")
+  -- Status dot
+  local dot    = STATE_DOT[agent.state or "idle"] or "?"
+  local dot_hl = STATE_HL[agent.state or "idle"]  or "AgentFlowDashDim"
+  add("  │  Status:   " .. dot, dot_hl)
+
+  if agent.result and agent.result.content then
+    local preview = agent.result.content:gsub("\n", " "):sub(1, 80)
+    if #agent.result.content > 80 then preview = preview .. "…" end
+    add("  │  Result:   " .. preview, "AgentFlowDashDim")
+  elseif agent.error then
+    local preview = tostring(agent.error):gsub("\n", " "):sub(1, 80)
+    if #tostring(agent.error) > 80 then preview = preview .. "…" end
+    add("  │  Error:    " .. preview, "AgentFlowDashFailed")
+  end
+
   add("  └" .. string.rep("─", 56), "AgentFlowDashSep")
   add("")
 
