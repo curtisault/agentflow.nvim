@@ -225,9 +225,10 @@ function M.setup(user_opts)
   -- Merge user opts (highest priority)
   if user_opts and next(user_opts) then
     local user_agents = user_opts.agents or {}
+    local base_agents = deep_copy(cfg.agents)  -- save before deep_merge corrupts array by index
     deep_merge(cfg, user_opts)
     if #user_agents > 0 then
-      cfg.agents = union_agents(cfg.agents, user_agents)
+      cfg.agents = union_agents(base_agents, user_agents)
     end
   end
 
