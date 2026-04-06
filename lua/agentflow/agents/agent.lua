@@ -140,7 +140,7 @@ function M:run(task, context, opts)
     return adapter:complete(messages, {
       model      = self.config.model,
       max_tokens = self.config.max_tokens or 8192,
-      system     = opts.system,
+      system     = opts.system or self.config.system_prompt,
       on_token   = opts.on_token,
       timeout    = timeout_ms,
     })
