@@ -36,6 +36,7 @@ local STATE_HL = {
 local _state = {
   buf         = nil,
   win         = nil,
+  prev_buf    = nil,  -- buffer to restore on close
   breadcrumbs = {},   -- stack of agent objects
   focus       = nil,  -- current focused agent
   line_agents = {},   -- line → child agent
@@ -246,30 +247,24 @@ function M.open(opts)
   _state.focus       = focus
   _state.breadcrumbs = {}
 
+  -- If already open in a window, re-render in place
   if _state.win and vim.api.nvim_win_is_valid(_state.win) then
     vim.api.nvim_set_current_win(_state.win)
     render()
     return
   end
 
-  local width  = math.floor(vim.o.columns * 0.7)
-  local height = math.floor(vim.o.lines   * 0.8)
-  local row    = math.floor((vim.o.lines   - height) / 2)
-  local col    = math.floor((vim.o.columns - width)  / 2)
+  -- Save current buffer so we can restore it on close
+  _state.prev_buf = vim.api.nvim_get_current_buf()
+  _state.win      = vim.api.nvim_get_current_win()
 
   _state.buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_option_value("filetype",   "agentflow-dash", { buf = _state.buf })
   vim.api.nvim_set_option_value("modifiable", false, { buf = _state.buf })
-  vim.api.nvim_set_option_value("bufhidden",  "wipe",  { buf = _state.buf })
+  vim.api.nvim_set_option_value("bufhidden",  "wipe", { buf = _state.buf })
 
-  _state.win = vim.api.nvim_open_win(_state.buf, true, {
-    relative  = "editor",
-    row = row, col = col, width = width, height = height,
-    style     = "minimal",
-    border    = "rounded",
-    title     = " AgentFlow Dashboard ",
-    title_pos = "center",
-  })
+  -- Replace current window's buffer
+  vim.api.nvim_win_set_buf(_state.win, _state.buf)
   vim.api.nvim_set_option_value("cursorline", true,  { win = _state.win })
   vim.api.nvim_set_option_value("number",     false, { win = _state.win })
 
@@ -282,10 +277,14 @@ end
 
 function M.close()
   if _state.win and vim.api.nvim_win_is_valid(_state.win) then
-    vim.api.nvim_win_close(_state.win, true)
+    -- Restore the previous buffer rather than closing the window
+    if _state.prev_buf and vim.api.nvim_buf_is_valid(_state.prev_buf) then
+      vim.api.nvim_win_set_buf(_state.win, _state.prev_buf)
+    end
   end
-  _state.win = nil
-  _state.buf = nil
+  _state.win      = nil
+  _state.buf      = nil
+  _state.prev_buf = nil
 end
 
 function M.refresh() render() end
