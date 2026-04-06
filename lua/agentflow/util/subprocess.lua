@@ -33,8 +33,10 @@ function M.run(opts)
   opts = opts or {}
   local timeout_ms = opts.timeout or 30000
 
-  local stdout_chunks = {}
-  local stderr_chunks = {}
+  local stdout_lines = {}
+  local stderr_lines = {}
+  local stdout_buf = ""
+  local stderr_buf = ""
   local job_id
   local timer
 
@@ -47,39 +49,51 @@ function M.run(opts)
     coroutine.resume(co, result, err)
   end
 
+  -- Append raw data chunks into buf, emit complete \n-terminated lines.
+  -- Returns the updated buffer (the unfinished trailing fragment).
+  local function flush_lines(buf, raw, line_list, line_cb)
+    for _, chunk in ipairs(raw) do
+      buf = buf .. chunk
+    end
+    while true do
+      local nl = buf:find("\n", 1, true)
+      if not nl then break end
+      local line = buf:sub(1, nl - 1):gsub("\r$", "")
+      buf = buf:sub(nl + 1)
+      table.insert(line_list, line)
+      if line_cb then pcall(line_cb, line) end
+    end
+    return buf
+  end
+
   local job_opts = {
     stdout_buffered = false,
     stderr_buffered = false,
 
     on_stdout = function(_, data, _)
       if not data then return end
-      for _, line in ipairs(data) do
-        if line ~= "" then
-          table.insert(stdout_chunks, line)
-          if opts.on_stdout then
-            pcall(opts.on_stdout, line)
-          end
-        end
-      end
+      stdout_buf = flush_lines(stdout_buf, data, stdout_lines, opts.on_stdout)
     end,
 
     on_stderr = function(_, data, _)
       if not data then return end
-      for _, line in ipairs(data) do
-        if line ~= "" then
-          table.insert(stderr_chunks, line)
-          if opts.on_stderr then
-            pcall(opts.on_stderr, line)
-          end
-        end
-      end
+      stderr_buf = flush_lines(stderr_buf, data, stderr_lines, opts.on_stderr)
     end,
 
     on_exit = function(_, code, _)
+      -- Flush any unterminated trailing fragment
+      if stdout_buf ~= "" then
+        table.insert(stdout_lines, stdout_buf)
+        if opts.on_stdout then pcall(opts.on_stdout, stdout_buf) end
+      end
+      if stderr_buf ~= "" then
+        table.insert(stderr_lines, stderr_buf)
+        if opts.on_stderr then pcall(opts.on_stderr, stderr_buf) end
+      end
       log.debug("subprocess exited", { code = code, cmd = opts.cmd[1] })
       resume({
-        stdout = table.concat(stdout_chunks, "\n"),
-        stderr = table.concat(stderr_chunks, "\n"),
+        stdout = table.concat(stdout_lines, "\n"),
+        stderr = table.concat(stderr_lines, "\n"),
         code   = code,
       }, nil)
     end,
