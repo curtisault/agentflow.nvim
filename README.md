@@ -357,6 +357,53 @@ autocmd User AgentFlowAgentCompleted lua print(vim.g.agentflow_event_data)
 
 ---
 
+## Routing
+
+The orchestrator decomposes each request into tasks and routes them to registered agents. Two mechanisms control which agent handles which task.
+
+### Routing rules
+
+Rules are evaluated in priority order (lower number = higher priority). The first matching rule wins.
+
+```lua
+routing = {
+  rules = {
+    { match = { file_pattern = "%.lua$" },  agent = "lua-expert", priority = 1 },
+    { match = { task_type = "analysis" },   agent = "reviewer",   priority = 2 },
+    { match = { task_type = "planning" },   agent = "planner",    priority = 3 },
+    { match = { fallback = true },          agent = "sonnet",     priority = 99 },
+  },
+}
+```
+
+**Match conditions** (all optional; omitted conditions always match):
+
+| Condition | Type | Matches when |
+|-----------|------|-------------|
+| `fallback` | boolean | Always — use as catch-all |
+| `task_type` | string | Task type equals value (`"analysis"`, `"implementation"`, `"test"`, etc.) |
+| `filetype` | string | Current buffer filetype equals value |
+| `file_pattern` | string | Any file in the task's required files matches the Lua pattern |
+| `agent_hint` | boolean | Orchestrator set an explicit agent hint on the task |
+
+Task types are assigned by the orchestrator's planner when it decomposes the request.
+
+### Agent hints
+
+The orchestrator can assign a specific agent to a task directly via `agent_hint` in the plan JSON. This takes precedence over all routing rules. To enable this, the orchestrator needs to know what agents are available — inject them at runtime with `add_routing_rule` or by ensuring the agent names are mentioned in your orchestrator system prompt override.
+
+You can also inject a rule at runtime without restarting:
+
+```lua
+require("agentflow.extensions").add_routing_rule({
+  match = { task_type = "test" },
+  agent = "reviewer",
+  priority = 1,
+})
+```
+
+---
+
 ## Orchestrator visibility
 
 The orchestrator is surfaced as a root agent node in the tree and dashboard. Its internal phases map to agent states so you can see exactly what is happening during a run:
